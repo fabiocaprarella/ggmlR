@@ -1279,6 +1279,28 @@ SEXP R_ggml_scale(SEXP ctx_ptr, SEXP a_ptr, SEXP s) {
     return R_MakeExternalPtr(result, R_NilValue, R_NilValue);
 }
 
+// x = s * a + b. Adding a constant this way keeps the graph allocation-free:
+// unlike ggml_add1 with ggml_new_f32, no data-carrying tensor is created, so it
+// is usable inside a no_alloc context.
+SEXP R_ggml_scale_bias(SEXP ctx_ptr, SEXP a_ptr, SEXP s, SEXP b) {
+    struct ggml_context * ctx = (struct ggml_context *) R_ExternalPtrAddr(ctx_ptr);
+    struct ggml_tensor * a = (struct ggml_tensor *) R_ExternalPtrAddr(a_ptr);
+    float scale = (float) asReal(s);
+    float bias  = (float) asReal(b);
+
+    if (ctx == NULL || a == NULL) {
+        error("Invalid pointer");
+    }
+
+    struct ggml_tensor * result = ggml_scale_bias(ctx, a, scale, bias);
+
+    if (result == NULL) {
+        error("Failed to create scale_bias operation");
+    }
+
+    return R_MakeExternalPtr(result, R_NilValue, R_NilValue);
+}
+
 SEXP R_ggml_clamp(SEXP ctx_ptr, SEXP a_ptr, SEXP min_val, SEXP max_val) {
     struct ggml_context * ctx = (struct ggml_context *) R_ExternalPtrAddr(ctx_ptr);
     struct ggml_tensor * a = (struct ggml_tensor *) R_ExternalPtrAddr(a_ptr);

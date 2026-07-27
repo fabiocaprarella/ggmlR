@@ -4,12 +4,25 @@
 \alias{nn_build_batch_norm}
 \title{Build batch_norm forward pass}
 \usage{
-nn_build_batch_norm(ctx, input_tensor, layer)
+nn_build_batch_norm(ctx, input_tensor, layer, training = TRUE)
+}
+\arguments{
+\item{training}{Logical; use batch statistics (TRUE) or running estimates (FALSE).}
 }
 \value{
-A \code{ggml_tensor} with RMS-normalized, scaled and shifted values.
+A \code{ggml_tensor} with batch-normalized, scaled and shifted values.
 }
 \description{
-Build batch_norm forward pass
+Normalizes over the BATCH axis, per feature -- the defining property of batch
+normalization. During training the statistics come from the current batch and
+the running estimates are updated (see \code{nn_bn_update_running}); at
+inference time the stored running estimates are used instead, so a prediction
+depends only on the sample itself and not on which other samples share its
+batch. Mirrors \code{ag_batch_norm()} in the autograd API.
+}
+\details{
+The input is \code{[features, batch]}, so the batch axis is \code{ne[1]}.
+Reductions in ggml run along \code{ne[0]}, hence the transposes: they move the
+batch axis into reduction position and back.
 }
 \keyword{internal}

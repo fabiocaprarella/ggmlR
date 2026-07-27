@@ -839,6 +839,7 @@ SEXP R_ggml_neg(SEXP ctx_ptr, SEXP a_ptr);
 SEXP R_ggml_sin(SEXP ctx_ptr, SEXP a_ptr);
 SEXP R_ggml_cos(SEXP ctx_ptr, SEXP a_ptr);
 SEXP R_ggml_scale(SEXP ctx_ptr, SEXP a_ptr, SEXP s);
+SEXP R_ggml_scale_bias(SEXP ctx_ptr, SEXP a_ptr, SEXP s, SEXP b);
 SEXP R_ggml_clamp(SEXP ctx_ptr, SEXP a_ptr, SEXP min_val, SEXP max_val);
 SEXP R_ggml_floor(SEXP ctx_ptr, SEXP a_ptr);
 SEXP R_ggml_ceil(SEXP ctx_ptr, SEXP a_ptr);
@@ -1393,6 +1394,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"R_ggml_sin",   (DL_FUNC) &R_ggml_sin,   2},
     {"R_ggml_cos",   (DL_FUNC) &R_ggml_cos,   2},
     {"R_ggml_scale", (DL_FUNC) &R_ggml_scale, 3},
+    {"R_ggml_scale_bias", (DL_FUNC) &R_ggml_scale_bias, 4},
     {"R_ggml_clamp", (DL_FUNC) &R_ggml_clamp, 4},
     {"R_ggml_floor", (DL_FUNC) &R_ggml_floor, 2},
     {"R_ggml_ceil",  (DL_FUNC) &R_ggml_ceil,  2},

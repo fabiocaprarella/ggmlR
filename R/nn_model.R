@@ -459,6 +459,13 @@ nn_build_graph <- function(model, batch_size, training = TRUE) {
       ggml_set_name(layer$weights$gamma, paste0("bn_", i, "_gamma"))
       ggml_set_name(layer$weights$beta, paste0("bn_", i, "_beta"))
 
+      # Running estimates used at inference time. Not parameters: they are
+      # updated by an EMA during training, never by the optimizer.
+      layer$weights$running_mean <- ggml_new_tensor_1d(ctx_weights, GGML_TYPE_F32, n_features)
+      layer$weights$running_var  <- ggml_new_tensor_1d(ctx_weights, GGML_TYPE_F32, n_features)
+      ggml_set_name(layer$weights$running_mean, paste0("bn_", i, "_running_mean"))
+      ggml_set_name(layer$weights$running_var, paste0("bn_", i, "_running_var"))
+
     } else if (layer$type == "lstm") {
       # input_shape: c(seq_len, input_size)
       input_sz <- layer$input_shape[2]
@@ -605,6 +612,23 @@ nn_build_graph <- function(model, batch_size, training = TRUE) {
         ggml_backend_tensor_set_data(layer$weights$gamma, rep(1.0, n))
         nn_init_zeros(layer$weights$beta)
       }
+
+      # Running estimates: restore when available, else start from the identity
+      # transform (mean 0, variance 1), matching ag_batch_norm().
+      nbn <- ggml_nelements(layer$weights$running_mean)
+      if (has_weights_data && !is.null(old_layer$weights_data$running_mean)) {
+        ggml_backend_tensor_set_data(layer$weights$running_mean, old_layer$weights_data$running_mean)
+        ggml_backend_tensor_set_data(layer$weights$running_var, old_layer$weights_data$running_var)
+      } else if (has_trained_weights && !is.null(old_layer$weights$running_mean)) {
+        ggml_backend_tensor_set_data(layer$weights$running_mean,
+          ggml_backend_tensor_get_data(old_layer$weights$running_mean))
+        ggml_backend_tensor_set_data(layer$weights$running_var,
+          ggml_backend_tensor_get_data(old_layer$weights$running_var))
+      } else {
+        nn_init_zeros(layer$weights$running_mean)
+        ggml_backend_tensor_set_data(layer$weights$running_var, rep(1.0, nbn))
+      }
+
       if (isTRUE(layer$trainable)) {
         ggml_set_param(layer$weights$gamma)
         ggml_set_param(layer$weights$beta)
@@ -703,6 +727,61 @@ nn_build_graph <- function(model, batch_size, training = TRUE) {
     buffer = buffer,
     layers_built = layers_built
   )
+}
+
+# Calibrate batch_norm running statistics after training.
+#
+# For each batch_norm layer, runs the trained network up to the layer that feeds
+# it and records the per-feature mean and variance of those activations over the
+# whole training set. Inference then normalizes with these fixed estimates, so a
+# prediction depends only on the sample itself rather than on which other
+# samples share its batch.
+#
+# Only the 2D [features, batch] case is calibrated; conv-shaped inputs keep the
+# rms_norm path in nn_build_batch_norm() and need no running statistics.
+#
+#' @keywords internal
+nn_bn_calibrate <- function(model, x) {
+  bn_idx <- which(vapply(model$layers, function(l) identical(l$type, "batch_norm"),
+                         logical(1)))
+  if (length(bn_idx) == 0L) return(model)
+
+  # Cap the calibration set: the statistics converge long before the full data
+  # is needed, and this keeps fit() cheap for large inputs.
+  n_samples <- if (is.matrix(x)) nrow(x) else dim(x)[1]
+  n_use <- min(n_samples, 1024L)
+  x_use <- slice_first_dim(x, seq_len(n_use))
+
+  for (i in bn_idx) {
+    layer <- model$layers[[i]]
+    if (length(layer$input_shape) != 1L) next   # conv path: no running stats
+    if (is.null(layer$weights$running_mean)) next
+
+    # A model consisting of everything before this batch_norm layer, sharing the
+    # trained weight tensors.
+    head_model <- model
+    head_model$layers <- model$layers[seq_len(i - 1L)]
+    if (length(head_model$layers) == 0L) next
+    head_model$history <- NULL
+
+    acts <- tryCatch(
+      ggml_predict(head_model, x_use, batch_size = min(n_use, 32L)),
+      error = function(e) NULL
+    )
+    if (is.null(acts) || !is.matrix(acts)) next
+
+    nf <- ggml_nelements(layer$weights$running_mean)
+    if (ncol(acts) != nf) next
+
+    mu  <- colMeans(acts)
+    # Population variance, matching the batch statistics used during training.
+    va  <- colMeans(sweep(acts, 2, mu, "-")^2)
+
+    ggml_backend_tensor_set_data(layer$weights$running_mean, as.numeric(mu))
+    ggml_backend_tensor_set_data(layer$weights$running_var, as.numeric(va))
+  }
+
+  model
 }
 
 # ============================================================================
@@ -970,6 +1049,21 @@ ggml_fit_sequential <- function(model, x, y, epochs = 1, batch_size = 32,
   model$layers <- graph_info$layers_built
   model$compilation$ctx_weights <- graph_info$ctx_weights
   model$compilation$buffer <- graph_info$buffer
+
+  # Calibrate batch_norm running statistics for inference.
+  #
+  # These have to come from a forward pass over the training data with the final
+  # weights, and ggml_opt_fit() runs every epoch inside a single C call with no
+  # R-visible hook between steps -- the intermediate mean/variance tensors it
+  # allocates are also not addressable from here. So instead of folding an EMA
+  # in per batch, the statistics are computed once, after training, from the
+  # activations feeding each batch_norm layer. The result is the exact mean and
+  # variance over the training set rather than an exponentially-weighted
+  # approximation of it, which is what inference actually wants.
+  #
+  # Must run after ctx_weights/buffer are attached: it calls ggml_predict(),
+  # which rebuilds the graph from model$compilation.
+  model <- nn_bn_calibrate(model, x)
 
   # Build history object
   model$history <- structure(
@@ -1624,6 +1718,12 @@ ggml_save_model.ggml_sequential_model <- function(model, path) {
     } else if (l$type == "batch_norm" && !is.null(l$weights$gamma)) {
       wdata$gamma <- ggml_backend_tensor_get_data(l$weights$gamma)
       wdata$beta  <- ggml_backend_tensor_get_data(l$weights$beta)
+      # Running estimates are part of the model: without them a reloaded model
+      # would normalize inference batches with the (0, 1) identity transform.
+      if (!is.null(l$weights$running_mean)) {
+        wdata$running_mean <- ggml_backend_tensor_get_data(l$weights$running_mean)
+        wdata$running_var  <- ggml_backend_tensor_get_data(l$weights$running_var)
+      }
     } else if (l$type == "lstm" && !is.null(l$weights$W_gates)) {
       wdata$W_gates <- ggml_backend_tensor_get_data(l$weights$W_gates)
       wdata$U_gates <- ggml_backend_tensor_get_data(l$weights$U_gates)

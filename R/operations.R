@@ -1744,6 +1744,34 @@ ggml_scale <- function(ctx, a, s) {
   .Call("R_ggml_scale", ctx, a, as.numeric(s), PACKAGE = "ggmlR")
 }
 
+#' Scale and Shift by Constants (Graph)
+#'
+#' Creates a graph node computing \code{s * a + b} for scalar \code{s} and
+#' \code{b}. Unlike \code{ggml_add1()} with \code{ggml_new_f32()}, this adds a
+#' constant without materialising a data-carrying tensor, so it is usable while
+#' building a graph in a \code{no_alloc} context.
+#'
+#' @param ctx GGML context
+#' @param a Input tensor
+#' @param s Scale factor (numeric scalar)
+#' @param b Bias added after scaling (numeric scalar)
+#' @return Tensor representing \code{s * a + b}
+#' @examples
+#' \donttest{
+#' ctx <- ggml_init(16 * 1024 * 1024)
+#' a <- ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 4)
+#' ggml_set_f32(a, c(1, 2, 3, 4))
+#' result <- ggml_scale_bias(ctx, a, 2.0, 1.0)
+#' graph <- ggml_build_forward_expand(ctx, result)
+#' ggml_graph_compute(ctx, graph)
+#' output <- ggml_get_f32(result)  # [3, 5, 7, 9]
+#' ggml_free(ctx)
+#' }
+#' @export
+ggml_scale_bias <- function(ctx, a, s, b) {
+  .Call("R_ggml_scale_bias", ctx, a, as.numeric(s), as.numeric(b), PACKAGE = "ggmlR")
+}
+
 #' Clamp (Graph)
 #'
 #' Creates a graph node for clamping values to a range: clamp(x, min, max)

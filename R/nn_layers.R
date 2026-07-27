@@ -866,19 +866,29 @@ nn_build_dense <- function(ctx, input_tensor, layer) {
 }
 
 #' Build batch_norm forward pass
-#' @return A \code{ggml_tensor} with RMS-normalized, scaled and shifted values.
+#'
+#' Normalizes over the BATCH axis, per feature -- the defining property of batch
+#' normalization. During training the statistics come from the current batch and
+#' the running estimates are updated (see \code{nn_bn_update_running}); at
+#' inference time the stored running estimates are used instead, so a prediction
+#' depends only on the sample itself and not on which other samples share its
+#' batch. Mirrors \code{ag_batch_norm()} in the autograd API.
+#'
+#' The input is \code{[features, batch]}, so the batch axis is \code{ne[1]}.
+#' Reductions in ggml run along \code{ne[0]}, hence the transposes: they move the
+#' batch axis into reduction position and back.
+#'
+#' @param training Logical; use batch statistics (TRUE) or running estimates (FALSE).
+#' @return A \code{ggml_tensor} with batch-normalized, scaled and shifted values.
 #' @keywords internal
-nn_build_batch_norm <- function(ctx, input_tensor, layer) {
+nn_build_batch_norm <- function(ctx, input_tensor, layer, training = TRUE) {
   gamma <- layer$weights$gamma
   beta <- layer$weights$beta
   eps <- layer$config$eps
-
-  # Use rms_norm (has backward pass, unlike ggml_norm)
-  normed <- ggml_rms_norm(ctx, input_tensor, eps = eps)
-
-  # Scale and shift: gamma * normed + beta
-  # gamma and beta are 1D [n_features], need reshape for broadcasting
   input_shape <- layer$input_shape
+
+  # gamma and beta are 1D [n_features]; reshape for broadcasting when the input
+  # carries spatial dimensions.
   if (length(input_shape) == 3) {
     # [W, H, C, N] -> reshape gamma to [1, 1, C, 1]
     gamma_r <- ggml_reshape_4d(ctx, gamma, 1L, 1L, as.integer(input_shape[3]), 1L)
@@ -891,6 +901,34 @@ nn_build_batch_norm <- function(ctx, input_tensor, layer) {
     # [features, N] -> gamma is already [features], broadcast over N
     gamma_r <- gamma
     beta_r <- beta
+  }
+
+  # Only the 2D [features, batch] case normalizes over a true batch axis. For
+  # conv-shaped inputs the batch axis is not ne[1] and the transpose trick does
+  # not apply, so keep the previous rms_norm behaviour there.
+  if (length(input_shape) > 1) {
+    normed <- ggml_rms_norm(ctx, input_tensor, eps = eps)
+    out <- ggml_mul(ctx, normed, gamma_r)
+    return(ggml_add(ctx, out, beta_r))
+  }
+
+  if (isTRUE(training)) {
+    # [features, batch] -> [batch, features] so ne[0] is the batch axis
+    xt <- ggml_cont(ctx, ggml_transpose(ctx, input_tensor))
+    mu <- ggml_mean(ctx, xt)                                  # [1, features]
+    centred <- ggml_cont(ctx, ggml_sub(ctx, xt, ggml_cont(ctx, ggml_repeat(ctx, mu, xt))))
+    var <- ggml_mean(ctx, ggml_sqr(ctx, centred))             # [1, features]
+    denom <- ggml_sqrt(ctx, ggml_scale_bias(ctx, var, 1.0, eps))
+    xhat <- ggml_div(ctx, centred, ggml_cont(ctx, ggml_repeat(ctx, denom, centred)))
+    normed <- ggml_cont(ctx, ggml_transpose(ctx, xhat))       # back to [features, batch]
+
+  } else {
+    # Inference: normalize with the stored running estimates.
+    rm <- layer$weights$running_mean
+    rv <- layer$weights$running_var
+    centred <- ggml_sub(ctx, input_tensor, ggml_cont(ctx, ggml_repeat(ctx, rm, input_tensor)))
+    denom <- ggml_sqrt(ctx, ggml_scale_bias(ctx, rv, 1.0, eps))
+    normed <- ggml_div(ctx, centred, ggml_cont(ctx, ggml_repeat(ctx, denom, input_tensor)))
   }
 
   out <- ggml_mul(ctx, normed, gamma_r)
@@ -936,7 +974,7 @@ nn_build_layer <- function(ctx, input_tensor, layer, training = TRUE,
     "global_average_pooling_2d" = nn_build_global_average_pooling_2d(ctx, input_tensor, layer),
     "flatten" = nn_build_flatten(ctx, input_tensor, layer),
     "dense" = nn_build_dense(ctx, input_tensor, layer),
-    "batch_norm" = nn_build_batch_norm(ctx, input_tensor, layer),
+    "batch_norm" = nn_build_batch_norm(ctx, input_tensor, layer, training),
     "dropout" = nn_build_dropout(ctx, input_tensor, layer, training),
     "embedding" = nn_build_embedding(ctx_weights, ctx, input_tensor, layer),
     "lstm" = nn_build_lstm(ctx, input_tensor, layer, batch_size = NULL),
