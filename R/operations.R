@@ -2582,6 +2582,54 @@ ggml_cpy <- function(ctx, a, b) {
   .Call("R_ggml_cpy", ctx, a, b, PACKAGE = "ggmlR")
 }
 
+#' Cast a Tensor to Another Type
+#'
+#' Returns a tensor with the same shape as \code{a} but of the given type.
+#' Unlike \code{\link{ggml_cpy}} there is no need to allocate the destination
+#' tensor first. Some ggml operations require a specific type -- for example
+#' \code{\link{ggml_conv_1d}} builds its im2col in F16 and so needs an F16
+#' kernel -- and this is the direct way to supply one.
+#'
+#' @param ctx GGML context
+#' @param a Source tensor
+#' @param type Target type constant (e.g. \code{GGML_TYPE_F16})
+#' @return Tensor of the requested type with \code{a}'s shape
+#' @export
+#' @seealso \code{\link{ggml_cast_numeric}}, \code{\link{ggml_cpy}}
+#' @examples
+#' \donttest{
+#' ctx <- ggml_init(16 * 1024 * 1024)
+#' a <- ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 100)
+#' a16 <- ggml_cast(ctx, a, GGML_TYPE_F16)
+#' ggml_free(ctx)
+#' }
+ggml_cast <- function(ctx, a, type) {
+  .Call("R_ggml_cast", ctx, a, as.integer(type), PACKAGE = "ggmlR")
+}
+
+#' Numeric Type Conversion
+#'
+#' Converts values numerically (truncating or rounding) rather than
+#' reinterpreting the bits as \code{\link{ggml_cast}} does. Supports
+#' F32<->I32, F32<->I16, F32<->I8, F16<->F32 and BF16<->F32.
+#'
+#' @param ctx GGML context
+#' @param a Source tensor
+#' @param type Target type constant (e.g. \code{GGML_TYPE_I32})
+#' @return Tensor of the requested type with \code{a}'s shape
+#' @export
+#' @seealso \code{\link{ggml_cast}}
+#' @examples
+#' \donttest{
+#' ctx <- ggml_init(16 * 1024 * 1024)
+#' a <- ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 10)
+#' i <- ggml_cast_numeric(ctx, a, GGML_TYPE_I32)
+#' ggml_free(ctx)
+#' }
+ggml_cast_numeric <- function(ctx, a, type) {
+  .Call("R_ggml_cast_numeric", ctx, a, as.integer(type), PACKAGE = "ggmlR")
+}
+
 # ============================================================================
 # Set Operations
 # ============================================================================

@@ -501,15 +501,35 @@ static void ggml_compute_backward(
         case GGML_OP_PERMUTE: {
             if (src0_needs_grads) {
                 const int32_t * axes = (const int32_t *) tensor->op_params;
-                const int axis0 = axes[0] & 0x3;
-                const int axis1 = axes[1] & 0x3;
-                const int axis2 = axes[2] & 0x3;
-                const int axis3 = axes[3] & 0x3;
+                // DIVERGENCE from upstream: upstream masks the stored axes with & 0x3,
+                // i.e. modulo 4. ggml_permute() itself asserts only axis <
+                // GGML_MAX_DIMS, which is 5, so an axis of 4 passes the forward pass and
+                // is then silently read back here as axis 0 -- producing a wrong inverse
+                // permutation with no diagnostic. There is no correct inverse to compute
+                // in that case: axb[] holds four entries and ggml_permute() does not
+                // reorder ne[4] to begin with. Assert instead of quietly
+                // mis-differentiating.
+                const int axis0 = axes[0];
+                const int axis1 = axes[1];
+                const int axis2 = axes[2];
+                const int axis3 = axes[3];
+                GGML_ASSERT(axis0 < 4 && axis1 < 4 && axis2 < 4 && axis3 < 4 &&
+                    "backward pass for ggml_permute() does not support a 5th axis");
                 int axb[4] = {0,0,0,0}; // axes backward
                 axb[axis0] = 0;
                 axb[axis1] = 1;
                 axb[axis2] = 2;
                 axb[axis3] = 3;
+                // NOTE: the gradient stays a non-contiguous view here, matching upstream.
+                // Wrapping it in ggml_cont() was tried and reverted: the backward passes
+                // for CONT and RESHAPE already materialize a non-contiguous gradient, and
+                // permute in practice appears alongside one of them, so three probe graphs
+                // (single path, gradient accumulation via ggml_add_impl, and back-to-back
+                // permutes with no cont between them) all train without it. Adding the
+                // copy would cost one materialization per permute in every attention and
+                // conv backward pass for no demonstrated benefit. If a graph ever does
+                // trip GGML_ASSERT(nb00 == sizeof(src0_t)) with a permuted gradient in
+                // src0 position, materialize here -- and add the graph as a test.
                 ggml_add_or_set(ctx, cgraph, isrc0, ggml_permute(ctx, grad, axb[0], axb[1], axb[2], axb[3]));
             }
         } break;

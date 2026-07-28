@@ -13,16 +13,17 @@ nn_build_batch_norm(ctx, input_tensor, layer, training = TRUE)
 A \code{ggml_tensor} with batch-normalized, scaled and shifted values.
 }
 \description{
-Normalizes over the BATCH axis, per feature -- the defining property of batch
-normalization. During training the statistics come from the current batch and
-the running estimates are updated (see \code{nn_bn_update_running}); at
-inference time the stored running estimates are used instead, so a prediction
-depends only on the sample itself and not on which other samples share its
-batch. Mirrors \code{ag_batch_norm()} in the autograd API.
+Normalizes per channel over the BATCH axis -- and, for conv-shaped inputs, over
+every spatial position as well -- the defining property of batch normalization.
+During training the statistics come from the current batch; at inference time
+the stored running estimates are used instead, so a prediction depends only on
+the sample itself and not on which other samples share its batch. Mirrors
+\code{ag_batch_norm()} in the autograd API.
 }
 \details{
-The input is \code{[features, batch]}, so the batch axis is \code{ne[1]}.
+For a flat \code{[features, batch]} input the batch axis is \code{ne[1]}.
 Reductions in ggml run along \code{ne[0]}, hence the transposes: they move the
-batch axis into reduction position and back.
+batch axis into reduction position and back. Conv-shaped inputs need a
+different rearrangement and are handled by \code{nn_bn_normalize_conv()}.
 }
 \keyword{internal}
