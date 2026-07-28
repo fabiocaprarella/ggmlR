@@ -318,7 +318,7 @@ static bool r_ggml_trace_eval_cb(struct ggml_tensor * t, bool ask, void * user_d
     }
     free(buf);
 
-    fprintf(stderr, "[trace] %-34s %-12s ne=[%lld,%lld,%lld,%lld] sum=%.6f min=%.6f max=%.6f\n",
+    REprintf("[trace] %-34s %-12s ne=[%lld,%lld,%lld,%lld] sum=%.6f min=%.6f max=%.6f\n",
             t->name[0] ? t->name : "<unnamed>", ggml_op_name(t->op),
             (long long) t->ne[0], (long long) t->ne[1],
             (long long) t->ne[2], (long long) t->ne[3],
