@@ -5,18 +5,18 @@
 \alias{evaluate.ggml_functional_model}
 \title{Evaluate a Model}
 \usage{
-\method{evaluate}{ggml_sequential_model}(x, test_x, test_y, batch_size = 32L, ...)
+\method{evaluate}{ggml_sequential_model}(object, x, y, batch_size = NULL, ...)
 
-\method{evaluate}{ggml_functional_model}(x, test_x, test_y, batch_size = 32L, ...)
+\method{evaluate}{ggml_functional_model}(object, x, y, batch_size = NULL, ...)
 }
 \arguments{
-\item{x}{A trained model object.}
+\item{object}{A trained model object.}
 
-\item{test_x}{Test data.}
+\item{x}{Test data.}
 
-\item{test_y}{Test labels.}
+\item{y}{Test labels.}
 
-\item{batch_size}{Batch size (default 32).}
+\item{batch_size}{Batch size.  \code{NULL} (default) uses 32, as in keras3.}
 
 \item{...}{Additional arguments passed to \code{\link{ggml_evaluate}}.}
 }
@@ -26,4 +26,10 @@ A named list with \code{loss} and metric values.
 \description{
 Computes loss and metrics on test data.  This is the keras-compatible
 interface; it delegates to \code{\link{ggml_evaluate}}.
+}
+\details{
+The \code{generics::evaluate} generic names its first argument \code{x}, but
+these methods name it \code{object} and use \code{x}/\code{y} for the data,
+matching keras3.  S3 dispatch does not require formal names to match the
+generic, so \code{evaluate(model, x, y)} works as it does in keras3.
 }

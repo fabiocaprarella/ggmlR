@@ -297,7 +297,7 @@ preds <- ggml_predict(model, x_new)
 | Conv2D | `ggml_layer_conv_2d(filters, kernel_size, padding)` |
 | MaxPooling2D | `ggml_layer_max_pooling_2d(pool_size)` |
 | GlobalAvgPool2D | `ggml_layer_global_average_pooling_2d()` |
-| BatchNorm | `ggml_layer_batch_norm()` |
+| BatchNorm | `ggml_layer_batch_norm()` (RMS-normalizes, then scales/shifts) |
 | Flatten | `ggml_layer_flatten()` |
 | Dropout | `ggml_layer_dropout(rate)` |
 | Embedding | `ggml_layer_embedding(vocab_size, dim)` |
@@ -475,7 +475,7 @@ opt$zero_grad()
 ```r
 model <- ag_sequential(
   ag_linear(64L, 128L, activation = "relu"),
-  ag_batch_norm(128L),
+  ag_layer_norm(128L),
   ag_dropout(0.1),
   ag_linear(128L, 10L)
 )
@@ -623,11 +623,11 @@ Same model on an **8× Tesla V100-32GB** host (2× Xeon E5-2698 v4, 256 GB RAM),
 | Shape | `ag_reshape`, `ag_transpose` |
 | Attention | `ag_multihead_attention` |
 | Loss | `ag_mse_loss`, `ag_cross_entropy_loss`, `ag_softmax_cross_entropy_loss` |
-| Layers | `ag_linear`, `ag_batch_norm`, `ag_dropout`, `ag_embedding` |
+| Layers | `ag_linear`, `ag_batch_norm`, `ag_layer_norm`, `ag_dropout`, `ag_embedding` |
 | Containers | `ag_sequential` |
 | Optimizers | `optimizer_sgd`, `optimizer_adam` |
-| Schedulers | `lr_scheduler_step`, `lr_scheduler_cosine` |
-| Utilities | `clip_grad_norm`, `ag_gradcheck`, `dp_train` |
+| Schedulers | `lr_scheduler_step`, `lr_scheduler_cosine` (SGDR via `T_mult`), `lr_scheduler_onecycle`, `lr_scheduler_cyclic`, `lr_scheduler_warmup_cosine` |
+| Utilities | `clip_grad_norm`, `clip_grad_value`, `check_grad_anomaly`, `ag_gradcheck`, `dp_train` |
 
 ## mlr3 Integration
 
