@@ -17,7 +17,7 @@ generics::fit
 #'
 #' Generic for computing loss and metrics on test data.
 #'
-#' @section Why this generic is not \code{generics::evaluate}:
+#' @section Relationship to the generics package:
 #' \code{generics::evaluate} declares its first argument as \code{x}, so S3
 #' dispatch happens on whatever is bound to \code{x}.  With the keras3 argument
 #' order \code{evaluate(model, x, y)} that works positionally, but naming the
