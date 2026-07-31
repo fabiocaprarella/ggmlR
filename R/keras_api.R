@@ -13,9 +13,31 @@ generics::compile
 #' @export
 generics::fit
 
-#' @importFrom generics evaluate
+#' Evaluate a Model
+#'
+#' Generic for computing loss and metrics on test data.
+#'
+#' @section Why this generic is not \code{generics::evaluate}:
+#' \code{generics::evaluate} declares its first argument as \code{x}, so S3
+#' dispatch happens on whatever is bound to \code{x}.  With the keras3 argument
+#' order \code{evaluate(model, x, y)} that works positionally, but naming the
+#' data explicitly -- \code{evaluate(model, x = x, y = y)} -- binds the *data*
+#' to \code{x}, dispatches on it, and fails with "no applicable method".
+#' Declaring the generic here with \code{object} as its first argument fixes
+#' that and also resolves the S3 generic/method consistency warning from
+#' \code{R CMD check}.
+#'
+#' The trade-off: attaching both ggmlR and keras3 makes the two \code{evaluate}
+#' generics mask one another, and the later-attached package wins.  Qualify the
+#' call (\code{ggmlR::evaluate(...)}) if both are loaded.  \code{compile()} and
+#' \code{fit()} are unaffected -- \code{generics} declares those with
+#' \code{object} first, so they are still re-exported from there.
+#'
+#' @rdname evaluate
 #' @export
-generics::evaluate
+evaluate <- function(object, ...) {
+  UseMethod("evaluate")
+}
 
 # keras3 documents batch_size = NULL as "defaults to 32".  The underlying
 # ggml_* implementations require a concrete size, so resolve it here.
@@ -128,15 +150,10 @@ fit.ggml_functional_model <- function(object, x, y, epochs = 1L,
 # evaluate()
 # ============================================================================
 
-#' Evaluate a Model
-#'
-#' Computes loss and metrics on test data.  This is the keras-compatible
-#' interface; it delegates to \code{\link{ggml_evaluate}}.
-#'
-#' The \code{generics::evaluate} generic names its first argument \code{x}, but
-#' these methods name it \code{object} and use \code{x}/\code{y} for the data,
-#' matching keras3.  S3 dispatch does not require formal names to match the
-#' generic, so \code{evaluate(model, x, y)} works as it does in keras3.
+#' These methods are the keras-compatible interface; they delegate to
+#' \code{\link{ggml_evaluate}}.  The argument order is keras3's: the model
+#' first, then \code{x}/\code{y} for the data.  Both
+#' \code{evaluate(model, x, y)} and \code{evaluate(model, x = x, y = y)} work.
 #'
 #' @param object A trained model object.
 #' @param x Test data.

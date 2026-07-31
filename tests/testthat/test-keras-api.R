@@ -191,11 +191,17 @@ test_that("evaluate() uses keras3 argument order (object, x, y)", {
   expect_named(formals(getS3method("evaluate", "ggml_sequential_model"))[1:3],
                c("object", "x", "y"))
 
-  # The generic is generics::evaluate(x, ...), so UseMethod() dispatches on
-  # whatever is bound to `x`.  Passing the data as a named x= therefore
-  # dispatches on the data, not the model, and finds no method.  keras3 has the
-  # same constraint; the data must be positional or named y= only.
-  expect_error(evaluate(m, x = x, y = y), "no applicable method")
+  # Named x= must work too.
+  #
+  # This previously FAILED with "no applicable method", and an earlier version
+  # of this test asserted that failure as expected behaviour. It was a defect,
+  # not a constraint: the package re-exported generics::evaluate(x, ...), whose
+  # first formal is `x`, so naming the data x= bound the *data* to the dispatch
+  # argument and dispatched on a matrix instead of the model. ggmlR now declares
+  # its own evaluate(object, ...) generic, which fixes this. Do not restore the
+  # old expect_error() form.
+  res_named <- evaluate(m, x = x, y = y)
+  expect_true(is.list(res_named) || is.numeric(res_named))
 })
 
 test_that("predict()/evaluate() accept batch_size = NULL (keras3 default)", {

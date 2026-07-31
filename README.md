@@ -446,6 +446,27 @@ m <- ggml_model(inputs = list(x1, x2), outputs = out)
 | Multi-output predict | list of numpy arrays | R list of matrices |
 | Backend | TensorFlow / JAX / PyTorch | ggml (Vulkan GPU, CPU fallback) |
 
+#### `evaluate()` masks the keras3 generic
+
+`compile()` and `fit()` are re-exported from the **generics** package, so they
+are shared with keras3 and other packages that use the same generics.
+`evaluate()` is not: ggmlR declares its own.
+
+`generics::evaluate` names its first argument `x`, so S3 dispatch happens on
+whatever is bound to `x`. With the keras3 argument order that works positionally
+— `evaluate(model, x, y)` — but naming the data explicitly,
+`evaluate(model, x = x, y = y)`, binds the *data* to the dispatch argument and
+fails with "no applicable method". Declaring the generic here as
+`evaluate(object, ...)` makes both forms work.
+
+The trade-off: attaching both ggmlR and keras3 makes the two `evaluate` generics
+mask one another, and whichever package was attached later wins. If you use both,
+qualify the call:
+
+```r
+ggmlR::evaluate(model, x_test, y_test)
+```
+
 ## Dynamic Autograd Engine (PyTorch-style)
 
 Build and train arbitrary architectures with eager execution and automatic differentiation.
@@ -1046,6 +1067,59 @@ Reduction: ReduceMean, ReduceSum.
 Quantization: DequantizeLinear, QuantizeLinear, QLinearConv, QLinearAdd, QLinearMatMul, QLinearSigmoid, QLinearConcat.
 Fused custom ops: RelPosBias2D (BoTNet-style 2D relative position bias).
 Pass-through: Dropout.
+
+## Custom Operations
+
+`ggml_custom()` adds a graph node computed by a C kernel — for operations ggml
+has no graph op for. Kernels are addressed **by name**, not by a function
+pointer passed through R, so a wrong name is a clean error instead of a segfault.
+
+Three kernels ship built in; `ggml_custom_ops()` lists the registry.
+
+```r
+ctx <- ggml_init(16 * 1024 * 1024)
+x <- ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 5, 2)
+ggml_set_f32(x, c(5, 1, 3, 2, 4,
+                  9, 7, 8, 6, 10))
+
+# One median per row — the output collapses ne[1] to 1
+med <- ggml_custom(ctx, "row_median", args = list(x), ne = c(1, 2))
+
+graph <- ggml_build_forward_expand(ctx, med)
+ggml_graph_compute(ctx, graph)
+ggml_get_f32(med)   # 3, 8
+ggml_free(ctx)
+```
+
+| Kernel | What it does | API path it shows |
+|---|---|---|
+| `row_median` | median of each row | one input, caller-chosen output shape |
+| `row_permute` | `out[i] = x[perm[i]]` *within* each row (`ggml_get_rows()` permutes whole rows) | two inputs, I32 index tensor |
+| `clip_inplace` | clamp into `[lo, hi]`, writing into the input | `ggml_custom_inplace()` |
+
+**Registering your own kernel.** A package that links against ggmlR registers
+its kernels from C at load time, then references them from R by name:
+
+```c
+#include <ggmlR.h>   // system.file("include", "ggmlR.h", package = "ggmlR")
+
+static void my_kernel(struct ggml_tensor * dst, int ith, int nth, void * ud) {
+    const struct ggml_tensor * a = dst->src[0];
+    /* write only the slice of dst that ith owns */
+}
+
+void R_init_mypkg(DllInfo * dll) {
+    ggmlR_register_custom_op_t reg = (ggmlR_register_custom_op_t)
+        R_GetCCallable("ggmlR", "ggmlR_register_custom_op");
+    reg("my_kernel", my_kernel);
+}
+```
+
+Custom nodes are **CPU-only** — the kernel is a host function pointer, so no GPU
+backend can run it. Computing a graph that would put one on a GPU backend raises
+an error rather than failing inside the backend. Kernels may run on any thread
+(`ith` in `[0, nth)`) and must not call into R; pass `n_tasks = 1` for a kernel
+that is not thread-safe.
 
 ## GGUF Pre-trained Weights
 

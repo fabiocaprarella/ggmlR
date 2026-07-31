@@ -14,6 +14,10 @@
 #include <omp.h>
 #endif
 
+// r_interface_custom.c -- CPU-only guard for GGML_OP_CUSTOM nodes.
+extern const char * ggmlR_custom_check_backend(struct ggml_cgraph * graph,
+                                               ggml_backend_t backend);
+
 // ============================================================================
 // Graph-based Operations - These create computation nodes
 // ============================================================================
@@ -3139,6 +3143,15 @@ SEXP R_ggml_backend_graph_compute(SEXP backend_ptr, SEXP graph_ptr) {
 
     if (backend == NULL || graph == NULL) {
         error("Invalid pointer");
+    }
+
+    // GGML_OP_CUSTOM runs a host function pointer -- CPU backend only.
+    const char * bad = ggmlR_custom_check_backend(graph, backend);
+    if (bad != NULL) {
+        error("Custom op node '%s' cannot run on backend '%s': "
+              "ggml_custom() kernels are CPU-only. Compute this graph on the "
+              "CPU backend, or keep the custom node out of the GPU graph.",
+              bad, ggml_backend_name(backend));
     }
 
     enum ggml_status status = ggml_backend_graph_compute(backend, graph);
