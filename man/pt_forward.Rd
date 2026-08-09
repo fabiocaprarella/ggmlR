@@ -10,14 +10,37 @@ pt_forward(model, state)
 \item{model}{A \code{pt_transformer}, normally from
 \code{\link{pt_transformer_load}}.}
 
-\item{state}{Integer vector of \code{state_size} colours, each in
-\code{0..num_classes-1}. A solved 4x4x4 is \code{rep(0:5, each = 16)}.}
+\item{state}{Colours in \code{0..num_classes-1}: an integer vector of
+\code{state_size} for one state, or a matrix with \code{state_size}
+columns --- one state per row --- for a batch. A solved 4x4x4 is
+\code{rep(0:5, each = 16)}.}
 }
 \value{
-A numeric vector of \code{n_actions} values, one per move.
+For one state, a numeric vector of \code{n_actions} values, one per
+  move. For a batch, a matrix with one row per state and one column per
+  action.
 }
 \description{
-Reads one state and returns a value per action.
+Reads a state, or a batch of them, and returns a value per action.
+}
+\section{One state or many}{
+
+A batch is not a convenience here, it is the way to get the work done
+quickly. Every layer but the attention treats a row on its own, so a batch
+of states is the same arithmetic on taller matrices --- and a tall matmul is
+what BLAS is good at, where a short one spends its time in the call rather
+than the multiply. Scoring the ten states of a beam in one call is several
+times faster than scoring them one after another.
+}
+
+\examples{
+\dontrun{
+model <- pt_transformer_load("model.pth")
+solved <- rep(0:5, each = 16)
+
+pt_forward(model, solved)                       # 24 values
+pt_forward(model, rbind(solved, solved))        # 2 x 24
+}
 }
 \seealso{
 \code{\link{pt_transformer_load}}
