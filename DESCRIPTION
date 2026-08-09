@@ -38,7 +38,8 @@ Imports:
     generics,
     R6,
     methods,
-    stats
+    stats,
+    utils
 License: MIT + file LICENSE
 URL: https://github.com/Zabis13/ggmlR
 BugReports: https://github.com/Zabis13/ggmlR/issues
